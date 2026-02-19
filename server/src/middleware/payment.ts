@@ -32,6 +32,8 @@ export interface PaymentConfig {
   description: string;
   /** If true, skip payment verification (for local dev / testing) */
   devMode?: boolean;
+  /** If true, enforce 402 flow but accept dev payment headers (x402:dev:*) */
+  demoMode?: boolean;
 }
 
 export interface PaymentPayload {
@@ -117,8 +119,8 @@ export function paymentMiddleware(config: PaymentConfig) {
       return;
     }
 
-    // Dev mode: skip payment entirely
-    if (cfg.devMode) {
+    // Dev mode: skip payment entirely (but not in demo mode)
+    if (cfg.devMode && !cfg.demoMode) {
       (req as any).payment = { verified: true, amount: extractBetAmount(req), devMode: true };
       next();
       return;

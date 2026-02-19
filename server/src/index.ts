@@ -18,6 +18,7 @@ const paymentConfig = {
   facilitatorUrl: process.env.FACILITATOR_URL || "https://x402.org/facilitator",
   description: "Clawsino — Agentic Microtransaction Casino",
   devMode: process.env.NODE_ENV !== "production",
+  demoMode: process.env.X402_MODE === "demo",
 };
 
 // Apply x402 payment middleware to game endpoints
@@ -47,7 +48,7 @@ app.get("/", (_req, res) => {
 
 app.listen(PORT, () => {
   console.log(`🎰 Clawsino server running on port ${PORT}`);
-  console.log(`   Mode: ${paymentConfig.devMode ? "DEV (payments skipped)" : "PRODUCTION"}`);
+  console.log(`   Mode: ${paymentConfig.demoMode ? "DEMO (402 enforced, dev payments accepted)" : paymentConfig.devMode ? "DEV (payments skipped)" : "PRODUCTION"}`);
   console.log(`   Pay to: ${paymentConfig.payTo}`);
   console.log(`   Network: ${paymentConfig.network}`);
 });

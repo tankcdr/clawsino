@@ -59,10 +59,6 @@ def _post(endpoint: str, data: dict) -> dict:
 
     # Handle x402 Payment Required flow
     if resp.status_code == 402:
-        # In production, this would trigger the x402 payment flow:
-        # 1. Parse payment requirements from response
-        # 2. Sign USDC transfer with wallet
-        # 3. Retry with payment proof header
         payment_info = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
         return {
             "error": "payment_required",
@@ -72,6 +68,37 @@ def _post(endpoint: str, data: dict) -> dict:
 
     resp.raise_for_status()
     return resp.json()
+
+
+def demo_post(endpoint: str, data: dict) -> dict:
+    """Two-step x402 demo flow. Returns structured trace of the full negotiation."""
+    url = f"{get_server_url()}{endpoint}"
+    headers = _build_headers()
+
+    trace: dict = {"endpoint": endpoint, "data": data, "steps": []}
+
+    # Step 1 — send WITHOUT payment header → expect 402
+    resp1 = requests.post(url, json=data, headers=headers, timeout=30)
+    step1: dict = {"status": resp1.status_code, "body": None}
+    try:
+        step1["body"] = resp1.json()
+    except Exception:
+        step1["body"] = resp1.text[:500]
+    trace["steps"].append(step1)
+
+    # Step 2 — send WITH dev payment header → expect 200
+    import hashlib, time as _t
+    tx_hash = "0x" + hashlib.sha256(f"demo:{_t.time()}".encode()).hexdigest()[:40]
+    pay_headers = {**headers, "X-PAYMENT": f"x402:dev:{tx_hash}"}
+    resp2 = requests.post(url, json=data, headers=pay_headers, timeout=30)
+    step2: dict = {"status": resp2.status_code, "body": None, "tx_hash": tx_hash}
+    try:
+        step2["body"] = resp2.json()
+    except Exception:
+        step2["body"] = resp2.text[:500]
+    trace["steps"].append(step2)
+
+    return trace
 
 
 def _get(endpoint: str, params: dict | None = None) -> dict:

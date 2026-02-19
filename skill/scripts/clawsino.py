@@ -11,6 +11,104 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib import client, wallet, fairness
 
+# ---------------------------------------------------------------------------
+# Demo mode rendering
+# ---------------------------------------------------------------------------
+
+DEMO_MODE = False
+
+
+def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
+    """Format demo trace for chat (Telegram/Discord markdown-friendly)."""
+    lines = []
+    sep = "━" * 22
+    lines.append(f"🎰 CLAWSINO — {game_name}")
+    lines.append(sep)
+    lines.append("")
+
+    # Step 1 — initial request
+    lines.append(f"▶ POST {endpoint}")
+    lines.append(f"  {json.dumps(data, separators=(',', ':'))}")
+    lines.append("")
+
+    step1 = trace["steps"][0]
+    lines.append(f"◀ {step1['status']} Payment Required")
+    body1 = step1.get("body") or {}
+    if isinstance(body1, dict):
+        reqs = body1.get("paymentRequirements", [])
+        if reqs:
+            r = reqs[0]
+            lines.append(f"  x402 payment needed: {r.get('maxAmountRequired', '?')} {r.get('asset', 'USDC')}")
+            pay_to = r.get("payTo", "0x???")
+            lines.append(f"  Pay to: {pay_to[:8]}...{pay_to[-4:]} ({_network_label(r.get('network', ''))})")
+        else:
+            lines.append(f"  {body1.get('message', 'Payment required')}")
+    lines.append("")
+
+    # Payment signing
+    tx_hash = trace["steps"][1].get("tx_hash", "0x???")
+    lines.append("💳 Signing USDC payment...")
+    lines.append("")
+
+    # Step 2 — retry with payment
+    lines.append(f"▶ POST {endpoint} [+ X-PAYMENT]")
+    lines.append("")
+
+    step2 = trace["steps"][1]
+    body2 = step2.get("body") or {}
+    lines.append(f"◀ {step2['status']} OK")
+    if isinstance(body2, dict) and not body2.get("error"):
+        for key in ("result", "roll", "total"):
+            if key in body2:
+                lines.append(f"  {key.title()}: {body2[key]}")
+        won = body2.get("won")
+        if won is not None:
+            lines.append(f"  Won: {won} {'✅' if won else '❌'}")
+        payout = body2.get("payout")
+        if payout is not None:
+            lines.append(f"  Payout: {payout} USDC")
+        if body2.get("player_hand"):
+            lines.append(f"  Player: {body2['player_hand']}")
+        if body2.get("dealer_hand"):
+            lines.append(f"  Dealer: {body2['dealer_hand']}")
+        fp = body2.get("fairness_proof")
+        if fp and isinstance(fp, dict):
+            verified = fp.get("verified", fp.get("valid", False))
+            lines.append("")
+            lines.append(f"🔐 Fairness: {'verified ✓' if verified else 'unverified'}")
+    else:
+        lines.append(f"  {json.dumps(body2, indent=2)}")
+
+    lines.append(sep)
+
+    # Bottom line summary
+    if isinstance(body2, dict) and not body2.get("error"):
+        won = body2.get("won", False)
+        bet = data.get("bet", 0)
+        payout = body2.get("payout", 0)
+        pnl = payout - bet
+        if won:
+            lines.append(f"✅ YOU WIN +${pnl:.2f} USDC")
+        else:
+            lines.append(f"❌ YOU LOSE -${bet:.2f} USDC")
+    return "\n".join(lines)
+
+
+def _network_label(network: str) -> str:
+    if "8453" in network:
+        return "Base"
+    return network
+
+
+def _demo_play(game_name: str, endpoint: str, data: dict) -> str:
+    """Execute demo two-step flow and return formatted output."""
+    trace = client.demo_post(endpoint, data)
+    return _demo_format(game_name, endpoint, data, trace)
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 def cmd_games():
     """List available games."""
@@ -35,6 +133,11 @@ def cmd_flip(args: list[str]):
         print("Choice must be 'heads' or 'tails'")
         sys.exit(1)
     amount = float(args[1])
+
+    if DEMO_MODE:
+        print(_demo_play("Coinflip", "/api/coinflip", {"choice": choice, "bet": amount}))
+        return
+
     print(f"🪙 Flipping coin... {choice} for ${amount:.2f} USDC")
     result = client.play_coinflip(choice, amount)
     _print_result(result)
@@ -51,6 +154,11 @@ def cmd_dice(args: list[str]):
         sys.exit(1)
     target = int(args[1])
     amount = float(args[2])
+
+    if DEMO_MODE:
+        print(_demo_play("Dice", "/api/dice", {"prediction": prediction, "target": target, "bet": amount}))
+        return
+
     print(f"🎲 Rolling dice... {prediction} {target} for ${amount:.2f} USDC")
     result = client.play_dice(prediction, target, amount)
     _print_result(result)
@@ -62,6 +170,11 @@ def cmd_blackjack(args: list[str]):
         print("Usage: clawsino blackjack <amount>")
         sys.exit(1)
     amount = float(args[0])
+
+    if DEMO_MODE:
+        print(_demo_play("Blackjack", "/api/blackjack", {"bet": amount}))
+        return
+
     print(f"🃏 Dealing blackjack... ${amount:.2f} USDC")
     result = client.play_blackjack(amount)
     _print_result(result)
@@ -172,8 +285,16 @@ COMMANDS = {
 
 
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help", "help"):
-        print("Usage: clawsino <command> [args...]")
+    global DEMO_MODE
+
+    # Parse --demo flag from anywhere in argv
+    args = list(sys.argv[1:])
+    if "--demo" in args:
+        DEMO_MODE = True
+        args.remove("--demo")
+
+    if len(args) < 1 or args[0] in ("-h", "--help", "help"):
+        print("Usage: clawsino [--demo] <command> [args...]")
         print()
         print("Commands:")
         print("  games                          List available games")
@@ -184,16 +305,19 @@ def main():
         print("  history                        Recent game results")
         print("  verify <game_id>               Verify fairness proof")
         print("  stats                          Win/loss statistics")
+        print()
+        print("Flags:")
+        print("  --demo    Show full x402 payment flow (for demos/presentations)")
         sys.exit(0)
 
-    cmd = sys.argv[1]
+    cmd = args[0]
     if cmd not in COMMANDS:
         print(f"Unknown command: {cmd}")
         print("Run 'clawsino help' for usage.")
         sys.exit(1)
 
     try:
-        COMMANDS[cmd](sys.argv[2:])
+        COMMANDS[cmd](args[1:])
     except requests.exceptions.ConnectionError:
         print(f"❌ Cannot connect to game server at {wallet.get_server_url()}")
         print("   Is the server running? Check CLAWSINO_SERVER_URL.")

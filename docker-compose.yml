@@ -19,6 +19,7 @@ services:
       - .env
     environment:
       - RPC_URL=http://anvil:8545
+      - X402_MODE=${X402_MODE:-demo}
     depends_on:
       - anvil
     networks:
