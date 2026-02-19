@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clawsino"
+version = "0.1.0"
+description = "OpenClaw skill — agentic casino with USDC microtransactions on Base"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "web3>=6.0",
+    "eth-account>=0.10",
+]
+
+[project.scripts]
+clawsino = "scripts.clawsino:main"
+
+[tool.setuptools.packages.find]
+include = ["scripts*", "lib*"]
