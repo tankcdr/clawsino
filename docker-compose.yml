@@ -1,0 +1,29 @@
+version: "3.8"
+
+services:
+  anvil:
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil", "--host", "0.0.0.0", "--chain-id", "8453", "--block-time", "1"]
+    ports:
+      - "8545:8545"
+    networks:
+      - clawsino
+
+  game-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - RPC_URL=http://anvil:8545
+    depends_on:
+      - anvil
+    networks:
+      - clawsino
+
+networks:
+  clawsino:
+    driver: bridge
