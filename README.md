@@ -41,8 +41,13 @@ cp .env.example .env
 # Start the casino (anvil + game server)
 docker compose up -d
 
-# Play via CLI
-cd skill && pip install -e .
+# Install the skill (uses a venv)
+cd skill
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+
+# Play
 clawsino games
 clawsino flip heads 0.25
 clawsino blackjack 1.00
