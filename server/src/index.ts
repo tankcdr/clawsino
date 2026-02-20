@@ -3,6 +3,7 @@ import cors from "cors";
 import { createServer } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import gameRoutes from "./routes/games.js";
 import { paymentMiddleware } from "./middleware/payment.js";
@@ -33,6 +34,20 @@ wss.on("connection", (ws) => {
   console.log("📺 Dashboard client connected");
   ws.on("close", () => console.log("📺 Dashboard client disconnected"));
 });
+
+// Load contract addresses from file if available (written by init service)
+let contractAddresses: { usdc?: string; payout?: string; verifier?: string } = {};
+const contractsFile = process.env.CONTRACTS_FILE;
+if (contractsFile && fs.existsSync(contractsFile)) {
+  try {
+    contractAddresses = JSON.parse(fs.readFileSync(contractsFile, "utf-8"));
+    console.log("📄 Loaded contract addresses from", contractsFile);
+    console.log("   USDC:", contractAddresses.usdc);
+    console.log("   Payout:", contractAddresses.payout);
+  } catch (err) {
+    console.warn("⚠️ Failed to load contracts file:", err);
+  }
+}
 
 // Middleware
 app.use(cors());
@@ -75,15 +90,25 @@ function broadcastMiddleware(req: any, res: any, next: any) {
   next();
 }
 
+// Determine mode
+const x402Mode = process.env.X402_MODE || "";
+const isOnchain = x402Mode === "onchain";
+const isDemo = x402Mode === "demo";
+
 // Payment config
 const paymentConfig = {
-  payTo: process.env.PAY_TO_ADDRESS || "0x0000000000000000000000000000000000000000",
+  payTo: process.env.PAY_TO_ADDRESS || contractAddresses.payout || "0x0000000000000000000000000000000000000000",
   network: process.env.NETWORK || "eip155:8453",
   asset: process.env.ASSET || "USDC",
   facilitatorUrl: process.env.FACILITATOR_URL || "https://x402.org/facilitator",
   description: "Clawsino — Agentic Microtransaction Casino",
-  devMode: process.env.NODE_ENV !== "production",
-  demoMode: process.env.X402_MODE === "demo",
+  devMode: process.env.NODE_ENV !== "production" && !isOnchain && !isDemo,
+  demoMode: isDemo,
+  onchainMode: isOnchain,
+  rpcUrl: process.env.RPC_URL || "http://localhost:8545",
+  usdcAddress: process.env.USDC_ADDRESS || contractAddresses.usdc || "",
+  payoutAddress: process.env.PAYOUT_ADDRESS || contractAddresses.payout || "",
+  gameServerPrivateKey: process.env.GAME_SERVER_PRIVATE_KEY || "",
 };
 
 // Apply x402 payment middleware to game endpoints
@@ -95,7 +120,6 @@ app.use("/api/blackjack", paymentMiddleware(paymentConfig));
 app.use("/api", gameRoutes);
 
 // Serve dashboard static files
-// In Docker: /dashboard, locally: ../../dashboard relative to compiled JS
 const dashboardPath = process.env.DASHBOARD_PATH || path.resolve(__dirname, "../../dashboard");
 app.use("/dashboard", express.static(dashboardPath));
 
@@ -114,16 +138,24 @@ app.get("/", (_req, res) => {
     dashboard: "GET /dashboard",
     games: ["POST /api/coinflip", "POST /api/dice", "POST /api/blackjack"],
     payment: "x402 (USDC on Base)",
+    mode: isOnchain ? "onchain" : isDemo ? "demo" : "dev",
   });
 });
+
+const modeLabel = isOnchain ? "ONCHAIN (real USDC verification)" : isDemo ? "DEMO (402 enforced, dev payments accepted)" : "DEV (payments skipped)";
 
 server.listen(PORT, () => {
   console.log(`🎰 Clawsino server running on port ${PORT}`);
   console.log(`   Dashboard: http://localhost:${PORT}/dashboard`);
   console.log(`   WebSocket: ws://localhost:${PORT}/ws`);
-  console.log(`   Mode: ${paymentConfig.demoMode ? "DEMO (402 enforced, dev payments accepted)" : paymentConfig.devMode ? "DEV (payments skipped)" : "PRODUCTION"}`);
+  console.log(`   Mode: ${modeLabel}`);
   console.log(`   Pay to: ${paymentConfig.payTo}`);
   console.log(`   Network: ${paymentConfig.network}`);
+  if (isOnchain) {
+    console.log(`   RPC: ${paymentConfig.rpcUrl}`);
+    console.log(`   USDC: ${paymentConfig.usdcAddress}`);
+    console.log(`   Payout: ${paymentConfig.payoutAddress}`);
+  }
 });
 
 export default app;

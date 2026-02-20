@@ -3,11 +3,37 @@ import crypto from "crypto";
 import { playCoinflip, type CoinSide } from "../games/coinflip.js";
 import { playDice, calculateMultiplier, type DicePrediction } from "../games/dice.js";
 import { playBlackjack } from "../games/blackjack.js";
+import { recordGameOnchain } from "../middleware/payment.js";
 
 const router = Router();
 
 function gameId(prefix: string): string {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+}
+
+/**
+ * After a game completes, record the result on-chain if in onchain mode.
+ * Returns the payout tx hash (or undefined).
+ */
+async function handleOnchainPayout(req: Request, won: boolean, betAmount: number, payoutAmount: number): Promise<string | undefined> {
+  const payment = (req as any).payment;
+  const config = (req as any).paymentConfig;
+
+  if (!payment?.onchain || !config || !payment.playerAddress) return undefined;
+
+  const result = await recordGameOnchain(
+    config,
+    payment.playerAddress,
+    betAmount,
+    won,
+    won ? payoutAmount : 0,
+  );
+
+  if (result.error) {
+    console.error(`⚠️ On-chain payout error: ${result.error}`);
+  }
+
+  return result.txHash;
 }
 
 // --- Game catalog ---
@@ -70,7 +96,7 @@ router.get("/games", (_req: Request, res: Response) => {
 
 // --- Coinflip ---
 
-router.post("/coinflip", (req: Request, res: Response) => {
+router.post("/coinflip", async (req: Request, res: Response) => {
   try {
     const { choice, bet, clientSeed } = req.body;
 
@@ -84,7 +110,15 @@ router.post("/coinflip", (req: Request, res: Response) => {
     }
 
     const result = playCoinflip({ choice: choice as CoinSide, bet, clientSeed });
-    res.json({ game_id: gameId("flip"), ...result });
+
+    // On-chain payout
+    const payoutTxHash = await handleOnchainPayout(req, result.won, bet, result.payout);
+
+    const response: any = { game_id: gameId("flip"), ...result };
+    if (payoutTxHash) response.payoutTxHash = payoutTxHash;
+    if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }
@@ -92,7 +126,7 @@ router.post("/coinflip", (req: Request, res: Response) => {
 
 // --- Dice ---
 
-router.post("/dice", (req: Request, res: Response) => {
+router.post("/dice", async (req: Request, res: Response) => {
   try {
     const { prediction, target, bet, clientSeed } = req.body;
 
@@ -116,7 +150,15 @@ router.post("/dice", (req: Request, res: Response) => {
     }
 
     const result = playDice({ prediction: prediction as DicePrediction, target, bet, clientSeed });
-    res.json({ game_id: gameId("dice"), ...result });
+
+    // On-chain payout
+    const payoutTxHash = await handleOnchainPayout(req, result.won, bet, result.payout);
+
+    const response: any = { game_id: gameId("dice"), ...result };
+    if (payoutTxHash) response.payoutTxHash = payoutTxHash;
+    if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }
@@ -124,7 +166,7 @@ router.post("/dice", (req: Request, res: Response) => {
 
 // --- Blackjack ---
 
-router.post("/blackjack", (req: Request, res: Response) => {
+router.post("/blackjack", async (req: Request, res: Response) => {
   try {
     const { bet, clientSeed } = req.body;
 
@@ -134,7 +176,16 @@ router.post("/blackjack", (req: Request, res: Response) => {
     }
 
     const result = playBlackjack({ bet, clientSeed });
-    res.json({ game_id: gameId("bj"), ...result });
+    const won = result.outcome === "win" || result.outcome === "blackjack";
+
+    // On-chain payout
+    const payoutTxHash = await handleOnchainPayout(req, won, bet, result.payout);
+
+    const response: any = { game_id: gameId("bj"), ...result };
+    if (payoutTxHash) response.payoutTxHash = payoutTxHash;
+    if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }

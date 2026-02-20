@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from lib.wallet import get_server_url, get_address, get_account
+from lib.wallet import get_server_url, get_address, get_account, transfer_usdc, get_usdc_balance
 
 HISTORY_DIR = Path.home() / ".openclaw" / "clawsino"
 HISTORY_FILE = HISTORY_DIR / "history.json"
@@ -44,30 +44,70 @@ def _build_headers() -> dict:
     headers = {"Content-Type": "application/json"}
     address = get_address()
     if address:
-        # x402 payment headers — the server's x402 middleware will handle
-        # the actual payment negotiation. We include our address for identification.
         headers["X-Payer-Address"] = address
     return headers
 
 
+def _handle_402_onchain(resp_json: dict, data: dict, url: str, headers: dict) -> requests.Response | None:
+    """Handle 402 by making a real on-chain USDC transfer. Returns retry response or None."""
+    reqs = resp_json.get("paymentRequirements", [])
+    if not reqs:
+        return None
+
+    req = reqs[0]
+    pay_to = req.get("payTo")
+    amount_str = req.get("maxAmountRequired", "0")
+    extra = req.get("extra", {})
+
+    if not pay_to:
+        return None
+
+    amount = float(amount_str)
+    rpc_url = extra.get("rpcUrl")
+    usdc_address = extra.get("usdcAddress")
+
+    try:
+        tx_hash = transfer_usdc(pay_to, amount, rpc_url=rpc_url, usdc_address=usdc_address)
+        if not tx_hash.startswith("0x"):
+            tx_hash = "0x" + tx_hash
+        headers["X-PAYMENT"] = f"x402:tx:{tx_hash}"
+        return requests.post(url, json=data, headers=headers, timeout=30)
+    except Exception as e:
+        return None
+
+
 def _post(endpoint: str, data: dict) -> dict:
-    """POST to the game server."""
+    """POST to the game server with automatic payment handling."""
     url = f"{get_server_url()}{endpoint}"
     headers = _build_headers()
 
     resp = requests.post(url, json=data, headers=headers, timeout=30)
 
-    # Handle x402 Payment Required flow — auto-retry with dev payment header
+    # Handle 402 Payment Required
     if resp.status_code == 402:
-        import hashlib, time as _t
-        tx_hash = hashlib.sha256(f"{_t.time()}".encode()).hexdigest()
+        resp_json = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+
+        # Check if server is in onchain mode
+        reqs = resp_json.get("paymentRequirements", [])
+        is_onchain = reqs and reqs[0].get("extra", {}).get("mode") == "onchain"
+
+        if is_onchain:
+            retry = _handle_402_onchain(resp_json, data, url, headers)
+            if retry and retry.status_code != 402:
+                retry.raise_for_status()
+                return retry.json()
+            # Fall through to dev payment if onchain failed
+
+        # Fallback: dev payment header
+        import hashlib
+        tx_hash = hashlib.sha256(f"{time.time()}".encode()).hexdigest()
         headers["X-PAYMENT"] = f"x402:dev:{tx_hash}"
         resp = requests.post(url, json=data, headers=headers, timeout=30)
         if resp.status_code == 402:
             payment_info = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
             return {
                 "error": "payment_required",
-                "message": "x402 payment required — real payment not yet implemented",
+                "message": "Payment required — could not complete payment",
                 "payment_info": payment_info,
             }
 
@@ -91,12 +131,38 @@ def demo_post(endpoint: str, data: dict) -> dict:
         step1["body"] = resp1.text[:500]
     trace["steps"].append(step1)
 
-    # Step 2 — send WITH dev payment header → expect 200
-    import hashlib, time as _t
-    tx_hash = "0x" + hashlib.sha256(f"demo:{_t.time()}".encode()).hexdigest()[:40]
-    pay_headers = {**headers, "X-PAYMENT": f"x402:dev:{tx_hash}"}
+    # Step 2 — pay and retry
+    resp1_json = step1.get("body") or {}
+    reqs = resp1_json.get("paymentRequirements", []) if isinstance(resp1_json, dict) else []
+    is_onchain = reqs and reqs[0].get("extra", {}).get("mode") == "onchain"
+
+    tx_hash = None
+    if is_onchain:
+        # Real on-chain payment
+        req = reqs[0]
+        pay_to = req.get("payTo", "")
+        amount = float(req.get("maxAmountRequired", "0"))
+        extra = req.get("extra", {})
+        rpc_url = extra.get("rpcUrl")
+        usdc_address = extra.get("usdcAddress")
+
+        try:
+            tx_hash = transfer_usdc(pay_to, amount, rpc_url=rpc_url, usdc_address=usdc_address)
+            if not tx_hash.startswith("0x"):
+                tx_hash = "0x" + tx_hash
+            pay_headers = {**headers, "X-PAYMENT": f"x402:tx:{tx_hash}"}
+        except Exception as e:
+            step2: dict = {"status": 0, "body": {"error": f"On-chain transfer failed: {e}"}, "tx_hash": None, "onchain": True}
+            trace["steps"].append(step2)
+            return trace
+    else:
+        # Dev payment
+        import hashlib
+        tx_hash = "0x" + hashlib.sha256(f"demo:{time.time()}".encode()).hexdigest()[:40]
+        pay_headers = {**headers, "X-PAYMENT": f"x402:dev:{tx_hash}"}
+
     resp2 = requests.post(url, json=data, headers=pay_headers, timeout=30)
-    step2: dict = {"status": resp2.status_code, "body": None, "tx_hash": tx_hash}
+    step2 = {"status": resp2.status_code, "body": None, "tx_hash": tx_hash, "onchain": is_onchain}
     try:
         step2["body"] = resp2.json()
     except Exception:

@@ -2,6 +2,7 @@
 """Clawsino CLI — play casino games with USDC on Base via x402."""
 
 import json
+import os
 import sys
 import time
 import requests
@@ -11,6 +12,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from lib import client, wallet, fairness
+
+# Check if we're in onchain mode (server tells us via 402 response extra field)
+ONCHAIN_MODE = os.environ.get("CLAWSINO_RPC_URL") or os.environ.get("X402_MODE") == "onchain"
 
 # ---------------------------------------------------------------------------
 # Demo mode rendering
@@ -47,8 +51,14 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
     lines.append("")
 
     # Payment signing
-    tx_hash = trace["steps"][1].get("tx_hash", "0x???")
-    lines.append("💳 Signing USDC payment...")
+    step2_data = trace["steps"][1] if len(trace["steps"]) > 1 else {}
+    tx_hash = step2_data.get("tx_hash", "0x???")
+    is_onchain = step2_data.get("onchain", False)
+    if is_onchain:
+        lines.append("💳 Signing REAL USDC transfer on-chain...")
+        lines.append(f"   tx: {tx_hash}")
+    else:
+        lines.append("💳 Signing USDC payment (dev mode)...")
     lines.append("")
 
     # Step 2 — retry with payment
@@ -82,6 +92,13 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
         if outcome:
             outcome_map = {"win": "WIN ✅", "blackjack": "BLACKJACK! 🔥", "push": "PUSH 🤝", "lose": "LOSS ❌"}
             lines.append(f"  Outcome: {outcome_map.get(outcome, outcome.upper())}")
+        # Show on-chain tx hashes
+        bet_tx = body2.get("betTxHash")
+        payout_tx = body2.get("payoutTxHash")
+        if bet_tx:
+            lines.append(f"  Bet Tx: {bet_tx[:12]}...{bet_tx[-6:]}")
+        if payout_tx:
+            lines.append(f"  Payout Tx: {payout_tx[:12]}...{payout_tx[-6:]}")
         game_id = body2.get("game_id")
         if game_id:
             lines.append(f"  Game ID: {game_id}")
@@ -123,13 +140,46 @@ def _network_label(network: str) -> str:
 
 def _demo_play(game_name: str, endpoint: str, data: dict) -> str:
     """Execute demo two-step flow and return formatted output."""
+    # If onchain, show balance before/after
+    rpc_url = os.environ.get("CLAWSINO_RPC_URL")
+    balance_before = None
+    balance_after = None
+
+    if rpc_url:
+        try:
+            balance_before = wallet.get_usdc_balance(rpc_url=rpc_url)
+        except Exception:
+            pass
+
     trace = client.demo_post(endpoint, data)
+
+    if rpc_url:
+        try:
+            balance_after = wallet.get_usdc_balance(rpc_url=rpc_url)
+        except Exception:
+            pass
+
     # Save to history so verify works
     if trace.get("steps") and len(trace["steps"]) > 1:
         body = trace["steps"][1].get("body", {})
         if isinstance(body, dict) and not body.get("error"):
             client._record_game(game_name.lower(), data, body)
-    return _demo_format(game_name, endpoint, data, trace)
+
+    output = _demo_format(game_name, endpoint, data, trace)
+
+    # Append balance info for onchain mode
+    if balance_before is not None or balance_after is not None:
+        lines = ["\n📊 On-Chain Balance:"]
+        if balance_before is not None:
+            lines.append(f"   Before: {balance_before:.2f} USDC")
+        if balance_after is not None:
+            lines.append(f"   After:  {balance_after:.2f} USDC")
+        if balance_before is not None and balance_after is not None:
+            delta = balance_after - balance_before
+            lines.append(f"   Change: {delta:+.2f} USDC")
+        output += "\n".join(lines)
+
+    return output
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +263,12 @@ def cmd_balance():
         print("❌ No wallet configured. Set CLAWSINO_PRIVATE_KEY.")
         sys.exit(1)
     try:
-        bal = wallet.get_usdc_balance(addr)
+        rpc_url = os.environ.get("CLAWSINO_RPC_URL")
+        bal = wallet.get_usdc_balance(addr, rpc_url=rpc_url)
         print(f"💰 Wallet: {addr}")
         print(f"   USDC Balance: ${bal:.4f}")
+        if rpc_url:
+            print(f"   RPC: {rpc_url}")
     except Exception as e:
         print(f"❌ Error checking balance: {e}")
         sys.exit(1)
