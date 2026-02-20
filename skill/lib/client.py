@@ -73,6 +73,8 @@ def _handle_402_onchain(resp_json: dict, data: dict, url: str, headers: dict) ->
         headers["X-PAYMENT"] = f"x402:tx:{tx_hash}"
         return requests.post(url, json=data, headers=headers, timeout=30)
     except Exception as e:
+        import sys
+        print(f"⚠️  On-chain payment failed: {e}", file=sys.stderr)
         return None
 
 
