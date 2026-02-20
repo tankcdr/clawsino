@@ -95,7 +95,8 @@ app.use("/api/blackjack", paymentMiddleware(paymentConfig));
 app.use("/api", gameRoutes);
 
 // Serve dashboard static files
-const dashboardPath = path.resolve(__dirname, "../../dashboard");
+// In Docker: /dashboard, locally: ../../dashboard relative to compiled JS
+const dashboardPath = process.env.DASHBOARD_PATH || path.resolve(__dirname, "../../dashboard");
 app.use("/dashboard", express.static(dashboardPath));
 
 // Health check

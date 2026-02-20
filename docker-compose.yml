@@ -9,14 +9,15 @@ services:
 
   game-api:
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: server/Dockerfile
     ports:
       - "3000:3000"
     environment:
       - RPC_URL=http://anvil:8545
       - PORT=3000
       - X402_MODE=demo
+      - DASHBOARD_PATH=/dashboard
     depends_on:
       - anvil
     networks:
