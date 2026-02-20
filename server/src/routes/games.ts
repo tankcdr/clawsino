@@ -4,6 +4,8 @@ import { playCoinflip, type CoinSide } from "../games/coinflip.js";
 import { playDice, calculateMultiplier, type DicePrediction } from "../games/dice.js";
 import { playBlackjack } from "../games/blackjack.js";
 import { recordGameOnchain } from "../middleware/payment.js";
+import { sendError, ErrorCodes } from "../utils/errors.js";
+import { recordGame, getHistory, getStats } from "../utils/history.js";
 
 const router = Router();
 
@@ -11,28 +13,20 @@ function gameId(prefix: string): string {
   return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 }
 
+function getWallet(req: Request): string {
+  return (req as any).payment?.playerAddress || req.headers["x-wallet"] as string || "anonymous";
+}
+
 /**
  * After a game completes, record the result on-chain if in onchain mode.
- * Returns the payout tx hash (or undefined).
  */
 async function handleOnchainPayout(req: Request, won: boolean, betAmount: number, payoutAmount: number): Promise<string | undefined> {
   const payment = (req as any).payment;
   const config = (req as any).paymentConfig;
-
   if (!payment?.onchain || !config || !payment.playerAddress) return undefined;
 
-  const result = await recordGameOnchain(
-    config,
-    payment.playerAddress,
-    betAmount,
-    won,
-    won ? payoutAmount : 0,
-  );
-
-  if (result.error) {
-    console.error(`⚠️ On-chain payout error: ${result.error}`);
-  }
-
+  const result = await recordGameOnchain(config, payment.playerAddress, betAmount, won, won ? payoutAmount : 0);
+  if (result.error) console.error(`⚠️ On-chain payout error: ${result.error}`);
   return result.txHash;
 }
 
@@ -98,29 +92,30 @@ router.get("/games", (_req: Request, res: Response) => {
 
 router.post("/coinflip", async (req: Request, res: Response) => {
   try {
-    const { choice, bet, clientSeed } = req.body;
+    const { choice, bet, clientSeed } = req.body || {};
 
-    if (!choice || !["heads", "tails"].includes(choice)) {
-      res.status(400).json({ error: 'Invalid choice. Must be "heads" or "tails".' });
-      return;
+    if (choice === undefined && bet === undefined) {
+      return sendError(res, 400, ErrorCodes.MALFORMED_REQUEST, "Request body must include 'choice' and 'bet'.");
     }
-    if (typeof bet !== "number" || bet < 0.01 || bet > 1.0) {
-      res.status(400).json({ error: "Bet must be between 0.01 and 1.00 USDC." });
-      return;
+    if (!choice || !["heads", "tails"].includes(choice)) {
+      return sendError(res, 400, ErrorCodes.INVALID_CHOICE, 'Choice must be "heads" or "tails".');
+    }
+    if (typeof bet !== "number" || !isFinite(bet) || bet < 0.01 || bet > 1.0) {
+      return sendError(res, 400, ErrorCodes.INVALID_BET, "Bet must be a number between 0.01 and 1.00 USDC.");
     }
 
     const result = playCoinflip({ choice: choice as CoinSide, bet, clientSeed });
-
-    // On-chain payout
+    const id = gameId("flip");
     const payoutTxHash = await handleOnchainPayout(req, result.won, bet, result.payout);
 
-    const response: any = { game_id: gameId("flip"), ...result };
+    recordGame({ gameId: id, game: "coinflip", wallet: getWallet(req), bet, payout: result.payout, won: result.won, timestamp: new Date().toISOString() });
+
+    const response: any = { game_id: id, ...result };
     if (payoutTxHash) response.payoutTxHash = payoutTxHash;
     if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
-
     res.json(response);
   } catch (err) {
-    res.status(500).json({ error: "Game error", details: String(err) });
+    sendError(res, 500, ErrorCodes.GAME_ERROR, "Internal game error.", String(err));
   }
 });
 
@@ -128,39 +123,38 @@ router.post("/coinflip", async (req: Request, res: Response) => {
 
 router.post("/dice", async (req: Request, res: Response) => {
   try {
-    const { prediction, target, bet, clientSeed } = req.body;
+    const { prediction, target, bet, clientSeed } = req.body || {};
 
+    if (prediction === undefined && target === undefined && bet === undefined) {
+      return sendError(res, 400, ErrorCodes.MALFORMED_REQUEST, "Request body must include 'prediction', 'target', and 'bet'.");
+    }
     if (!prediction || !["over", "under"].includes(prediction)) {
-      res.status(400).json({ error: 'Invalid prediction. Must be "over" or "under".' });
-      return;
+      return sendError(res, 400, ErrorCodes.INVALID_PREDICTION, 'Prediction must be "over" or "under".');
     }
-    if (typeof target !== "number" || target < 2 || target > 12) {
-      res.status(400).json({ error: "Target must be between 2 and 12." });
-      return;
+    if (typeof target !== "number" || !isFinite(target) || !Number.isInteger(target) || target < 2 || target > 12) {
+      return sendError(res, 400, ErrorCodes.INVALID_TARGET, "Target must be an integer between 2 and 12.");
     }
-    if (typeof bet !== "number" || bet < 0.01 || bet > 1.0) {
-      res.status(400).json({ error: "Bet must be between 0.01 and 1.00 USDC." });
-      return;
+    if (typeof bet !== "number" || !isFinite(bet) || bet < 0.01 || bet > 1.0) {
+      return sendError(res, 400, ErrorCodes.INVALID_BET, "Bet must be a number between 0.01 and 1.00 USDC.");
     }
 
     const multiplier = calculateMultiplier(prediction as DicePrediction, target);
     if (multiplier === 0) {
-      res.status(400).json({ error: "Impossible bet — 0% win probability for this prediction/target." });
-      return;
+      return sendError(res, 400, ErrorCodes.IMPOSSIBLE_BET, "Impossible bet — 0% win probability for this prediction/target.");
     }
 
     const result = playDice({ prediction: prediction as DicePrediction, target, bet, clientSeed });
-
-    // On-chain payout
+    const id = gameId("dice");
     const payoutTxHash = await handleOnchainPayout(req, result.won, bet, result.payout);
 
-    const response: any = { game_id: gameId("dice"), ...result };
+    recordGame({ gameId: id, game: "dice", wallet: getWallet(req), bet, payout: result.payout, won: result.won, timestamp: new Date().toISOString() });
+
+    const response: any = { game_id: id, ...result };
     if (payoutTxHash) response.payoutTxHash = payoutTxHash;
     if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
-
     res.json(response);
   } catch (err) {
-    res.status(500).json({ error: "Game error", details: String(err) });
+    sendError(res, 500, ErrorCodes.GAME_ERROR, "Internal game error.", String(err));
   }
 });
 
@@ -168,27 +162,46 @@ router.post("/dice", async (req: Request, res: Response) => {
 
 router.post("/blackjack", async (req: Request, res: Response) => {
   try {
-    const { bet, clientSeed } = req.body;
+    const { bet, clientSeed } = req.body || {};
 
-    if (typeof bet !== "number" || bet < 0.1 || bet > 5.0) {
-      res.status(400).json({ error: "Bet must be between 0.10 and 5.00 USDC." });
-      return;
+    if (bet === undefined) {
+      return sendError(res, 400, ErrorCodes.MALFORMED_REQUEST, "Request body must include 'bet'.");
+    }
+    if (typeof bet !== "number" || !isFinite(bet) || bet < 0.1 || bet > 5.0) {
+      return sendError(res, 400, ErrorCodes.INVALID_BET, "Bet must be a number between 0.10 and 5.00 USDC.");
     }
 
     const result = playBlackjack({ bet, clientSeed });
     const won = result.outcome === "win" || result.outcome === "blackjack";
-
-    // On-chain payout
+    const id = gameId("bj");
     const payoutTxHash = await handleOnchainPayout(req, won, bet, result.payout);
 
-    const response: any = { game_id: gameId("bj"), ...result };
+    recordGame({ gameId: id, game: "blackjack", wallet: getWallet(req), bet, payout: result.payout, won, outcome: result.outcome, timestamp: new Date().toISOString() });
+
+    const response: any = { game_id: id, ...result };
     if (payoutTxHash) response.payoutTxHash = payoutTxHash;
     if ((req as any).payment?.txHash) response.betTxHash = (req as any).payment.txHash;
-
     res.json(response);
   } catch (err) {
-    res.status(500).json({ error: "Game error", details: String(err) });
+    sendError(res, 500, ErrorCodes.GAME_ERROR, "Internal game error.", String(err));
   }
+});
+
+// --- History ---
+
+router.get("/history/:wallet", (req: Request, res: Response) => {
+  const { wallet } = req.params;
+  if (!wallet || !/^(0x[a-fA-F0-9]{40}|anonymous)$/.test(wallet)) {
+    return sendError(res, 400, ErrorCodes.INVALID_WALLET, "Invalid wallet address. Must be a valid Ethereum address (0x...).");
+  }
+
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const offset = parseInt(req.query.offset as string) || 0;
+
+  const { records, total } = getHistory(wallet, limit, offset);
+  const stats = getStats(wallet);
+
+  res.json({ wallet, ...stats, records, limit, offset, total });
 });
 
 export default router;

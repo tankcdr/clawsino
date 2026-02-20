@@ -7,6 +7,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import gameRoutes from "./routes/games.js";
 import { paymentMiddleware } from "./middleware/payment.js";
+import { rateLimitMiddleware } from "./middleware/rateLimit.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -52,6 +53,11 @@ if (contractsFile && fs.existsSync(contractsFile)) {
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Rate limiting — 60 requests per minute per IP for game endpoints
+app.use("/api/coinflip", rateLimitMiddleware({ windowMs: 60_000, maxRequests: 60 }));
+app.use("/api/dice", rateLimitMiddleware({ windowMs: 60_000, maxRequests: 60 }));
+app.use("/api/blackjack", rateLimitMiddleware({ windowMs: 60_000, maxRequests: 60 }));
 
 // Dashboard broadcast middleware — captures request info before payment middleware
 app.use("/api/coinflip", (req: any, _res: any, next: any) => { req.__game = "coinflip"; next(); }, broadcastMiddleware);
@@ -123,10 +129,19 @@ app.use("/api", gameRoutes);
 const dashboardPath = process.env.DASHBOARD_PATH || path.resolve(__dirname, "../../dashboard");
 app.use("/dashboard", express.static(dashboardPath));
 
-// Health check
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", service: "clawsino", version: "0.1.0" });
-});
+// Health check (both /health and /api/health)
+const healthHandler = (_req: any, res: any) => {
+  res.json({
+    status: "ok",
+    service: "clawsino",
+    version: "0.1.0",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+    mode: isOnchain ? "onchain" : isDemo ? "demo" : "dev",
+  });
+};
+app.get("/health", healthHandler);
+app.get("/api/health", healthHandler);
 
 // Contract info (for clients to discover addresses without triggering game events)
 app.get("/api/contracts", (_req, res) => {
