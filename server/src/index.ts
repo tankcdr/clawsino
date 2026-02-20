@@ -154,6 +154,72 @@ app.get("/api/contracts", (_req, res) => {
   });
 });
 
+// x402 payment info endpoint — returns payment requirements for each game
+app.get("/api/info", (_req, res) => {
+  const mode = isOnchain ? "onchain" : isDemo ? "demo" : "dev";
+  const baseRequirement = {
+    scheme: "exact" as const,
+    network: paymentConfig.network,
+    asset: paymentConfig.asset,
+    payTo: paymentConfig.payTo,
+    facilitatorUrl: paymentConfig.facilitatorUrl,
+    maxTimeoutSeconds: 60,
+    mimeType: "application/json",
+  };
+
+  res.json({
+    protocol: "x402",
+    mode,
+    description: "Clawsino — Agentic Microtransaction Casino. Pay-per-play via x402.",
+    paymentFlow: {
+      step1: "POST to a game endpoint without X-PAYMENT header",
+      step2: "Receive 402 Payment Required with paymentRequirements",
+      step3: "Send payment (USDC on Base) per the requirements",
+      step4: "Re-send request with X-PAYMENT header containing payment proof",
+      step5: "Receive game result + payout if you win",
+    },
+    games: {
+      coinflip: {
+        endpoint: "POST /api/coinflip",
+        betRange: { min: 0.01, max: 1.0, currency: "USDC" },
+        paymentRequirement: {
+          ...baseRequirement,
+          description: "Coinflip bet — 50/50, 1.96x payout",
+          resource: "/api/coinflip",
+          note: "maxAmountRequired is dynamic based on 'bet' field in request body",
+        },
+      },
+      dice: {
+        endpoint: "POST /api/dice",
+        betRange: { min: 0.01, max: 1.0, currency: "USDC" },
+        paymentRequirement: {
+          ...baseRequirement,
+          description: "Dice roll bet — variable payout based on target/prediction",
+          resource: "/api/dice",
+          note: "maxAmountRequired is dynamic based on 'bet' field in request body",
+        },
+      },
+      blackjack: {
+        endpoint: "POST /api/blackjack",
+        betRange: { min: 0.1, max: 5.0, currency: "USDC" },
+        paymentRequirement: {
+          ...baseRequirement,
+          description: "Blackjack bet — 2x win, 2.5x blackjack",
+          resource: "/api/blackjack",
+          note: "maxAmountRequired is dynamic based on 'bet' field in request body",
+        },
+      },
+    },
+    ...(isOnchain && {
+      onchain: {
+        rpcUrl: paymentConfig.rpcUrl,
+        usdcAddress: paymentConfig.usdcAddress,
+        payoutContract: paymentConfig.payoutAddress,
+      },
+    }),
+  });
+});
+
 // Root
 app.get("/", (_req, res) => {
   res.json({

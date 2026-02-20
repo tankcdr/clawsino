@@ -1,6 +1,11 @@
 /**
  * x402-compatible payment middleware for dynamic bet amounts.
  *
+ * Architecture: Swappable payment verifier via PaymentVerifier interface.
+ * When @x402/express SDK is available, swap in RealX402Verifier.
+ * Until then, the built-in verifiers follow the same x402 flow:
+ *   402 response → client pays → X-PAYMENT header → server verifies.
+ *
  * Supports three modes:
  * - devMode: skip payment entirely (local dev)
  * - demoMode: enforce 402 flow but accept dev payment headers (x402:dev:*)
@@ -9,6 +14,48 @@
 import { type Request, type Response, type NextFunction } from "express";
 import crypto from "crypto";
 import { ethers } from "ethers";
+
+// ---- Swappable Payment Verifier Interface ----
+
+export interface PaymentVerifyResult {
+  valid: boolean;
+  txHash?: string;
+  from?: string;
+  error?: string;
+}
+
+export interface PaymentVerifier {
+  name: string;
+  verify(paymentHeader: string, config: PaymentConfig, expectedAmount: number): Promise<PaymentVerifyResult>;
+}
+
+/** Dev/demo verifier — accepts any header, especially x402:dev:* */
+export class DevPaymentVerifier implements PaymentVerifier {
+  name = "dev";
+  async verify(paymentHeader: string): Promise<PaymentVerifyResult> {
+    if (paymentHeader.startsWith("x402:dev:")) {
+      return { valid: true, txHash: paymentHeader.split(":")[2] || crypto.randomUUID() };
+    }
+    return { valid: true, txHash: `0x${crypto.randomBytes(32).toString("hex")}` };
+  }
+}
+
+/** On-chain verifier — checks USDC Transfer event in tx receipt */
+export class OnchainPaymentVerifier implements PaymentVerifier {
+  name = "onchain";
+  async verify(paymentHeader: string, config: PaymentConfig, expectedAmount: number): Promise<PaymentVerifyResult> {
+    return verifyOnchainPayment(paymentHeader, config, expectedAmount);
+  }
+}
+
+/**
+ * Placeholder for real @x402/express SDK integration.
+ * When SDK is available, implement this class to call the facilitator's /verify endpoint.
+ *
+ * Example:
+ *   import { HTTPFacilitatorClient } from "@x402/core/server";
+ *   export class X402SdkVerifier implements PaymentVerifier { ... }
+ */
 
 export interface PaymentRequirement {
   scheme: "exact";
@@ -270,15 +317,13 @@ export function paymentMiddleware(config: PaymentConfig) {
       return;
     }
 
-    // Verify payment
+    // Verify payment via swappable verifier
     try {
-      let result: { valid: boolean; txHash?: string; from?: string; error?: string };
+      const verifier: PaymentVerifier = cfg.onchainMode
+        ? new OnchainPaymentVerifier()
+        : new DevPaymentVerifier();
 
-      if (cfg.onchainMode) {
-        result = await verifyOnchainPayment(paymentHeader, cfg, betAmount);
-      } else {
-        result = await verifyDevPayment(paymentHeader);
-      }
+      let result = await verifier.verify(paymentHeader, cfg, betAmount);
 
       if (!result.valid) {
         res.status(402).json({

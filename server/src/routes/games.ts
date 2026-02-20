@@ -190,13 +190,15 @@ router.post("/blackjack", async (req: Request, res: Response) => {
 // --- History ---
 
 router.get("/history/:wallet", (req: Request, res: Response) => {
-  const { wallet } = req.params;
+  const wallet = Array.isArray(req.params.wallet) ? req.params.wallet[0] : req.params.wallet;
   if (!wallet || !/^(0x[a-fA-F0-9]{40}|anonymous)$/.test(wallet)) {
     return sendError(res, 400, ErrorCodes.INVALID_WALLET, "Invalid wallet address. Must be a valid Ethereum address (0x...).");
   }
 
-  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
-  const offset = parseInt(req.query.offset as string) || 0;
+  const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+  const offsetParam = Array.isArray(req.query.offset) ? req.query.offset[0] : req.query.offset;
+  const limit = Math.min(parseInt(limitParam as string) || 50, 200);
+  const offset = parseInt(offsetParam as string) || 0;
 
   const { records, total } = getHistory(wallet, limit, offset);
   const stats = getStats(wallet);
