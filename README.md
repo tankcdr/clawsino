@@ -119,11 +119,25 @@ forge build
 forge test  # 29/29 passing
 ```
 
+## Demo Auto-Play
+
+Run the colorful auto-play script for live demos:
+
+```bash
+# 20 rounds with 1.5s delay (default)
+./scripts/demo-autoplay.sh
+
+# 50 fast rounds
+./scripts/demo-autoplay.sh 50 0.5
+```
+
+See [docs/DEMO.md](docs/DEMO.md) for the full step-by-step demo guide.
+
 ## Tests
 
 - **Contracts:** 29/29 (unit + fuzz)
-- **Server:** 20/20
-- **Total:** 49 tests passing
+- **Server:** 69/69 (games, payments, fairness, edge cases, history)
+- **Total:** 98 tests passing
 
 ## Tech Stack
 
