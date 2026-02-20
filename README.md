@@ -35,6 +35,9 @@ Agent (OpenClaw skill)
 ## Quick Start
 
 ```bash
+# Copy env file
+cp .env.example .env
+
 # Start the casino (anvil + game server)
 docker compose up -d
 
