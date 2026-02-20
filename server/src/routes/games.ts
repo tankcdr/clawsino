@@ -5,7 +5,7 @@ import { playDice, calculateMultiplier, type DicePrediction } from "../games/dic
 import { playBlackjack } from "../games/blackjack.js";
 import { recordGameOnchain } from "../middleware/payment.js";
 import { sendError, ErrorCodes } from "../utils/errors.js";
-import { recordGame, getHistory, getStats } from "../utils/history.js";
+import { recordGame, getHistory, getStats, getLeaderboard, getGlobalStats } from "../utils/history.js";
 
 const router = Router();
 
@@ -204,6 +204,22 @@ router.get("/history/:wallet", (req: Request, res: Response) => {
   const stats = getStats(wallet);
 
   res.json({ wallet, ...stats, records, limit, offset, total });
+});
+
+// --- Leaderboard ---
+
+router.get("/leaderboard", (req: Request, res: Response) => {
+  const limitParam = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
+  const limit = Math.min(parseInt(limitParam as string) || 20, 100);
+  const leaderboard = getLeaderboard(limit);
+  res.json(leaderboard);
+});
+
+// --- Global Stats ---
+
+router.get("/stats", (_req: Request, res: Response) => {
+  const stats = getGlobalStats();
+  res.json(stats);
 });
 
 export default router;
