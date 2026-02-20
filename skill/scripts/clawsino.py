@@ -4,6 +4,7 @@
 import json
 import sys
 import time
+import requests
 
 # Allow running from skill/ directory
 from pathlib import Path
@@ -123,6 +124,11 @@ def _network_label(network: str) -> str:
 def _demo_play(game_name: str, endpoint: str, data: dict) -> str:
     """Execute demo two-step flow and return formatted output."""
     trace = client.demo_post(endpoint, data)
+    # Save to history so verify works
+    if trace.get("steps") and len(trace["steps"]) > 1:
+        body = trace["steps"][1].get("body", {})
+        if isinstance(body, dict) and not body.get("error"):
+            client._record_game(game_name.lower(), data, body)
     return _demo_format(game_name, endpoint, data, trace)
 
 
