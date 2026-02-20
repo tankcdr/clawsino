@@ -74,8 +74,8 @@ cast send "$USDC_ADDR" "mint(address,uint256)" "$PLAYER_ADDR" 10000000000 \
 echo "✅ Player funded: $PLAYER_ADDR"
 
 # Write contract addresses to shared volume
-mkdir -p "$(dirname "$OUTPUT_FILE")"
-cat > "$OUTPUT_FILE" <<EOF
+mkdir -p "$(dirname "$OUTPUT_FILE")" 2>/dev/null || true
+cat > "$OUTPUT_FILE" 2>/dev/null <<EOF
 {
   "usdc": "$USDC_ADDR",
   "payout": "$PAYOUT_ADDR",

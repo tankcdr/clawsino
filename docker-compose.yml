@@ -11,6 +11,7 @@ services:
 
   init:
     image: ghcr.io/foundry-rs/foundry:latest
+    user: root
     volumes:
       - ./contracts:/contracts
       - ./scripts:/scripts
