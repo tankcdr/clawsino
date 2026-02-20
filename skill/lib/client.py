@@ -63,7 +63,11 @@ def _handle_402_onchain(resp_json: dict, data: dict, url: str, headers: dict) ->
         return None
 
     amount = float(amount_str)
-    rpc_url = extra.get("rpcUrl")
+    # Prefer client's configured RPC (server may return Docker-internal hostname)
+    rpc_url = get_rpc_url()
+    if rpc_url == "https://mainnet.base.org":
+        # Client has no override, use server's suggestion
+        rpc_url = extra.get("rpcUrl")
     usdc_address = extra.get("usdcAddress")
 
     try:
