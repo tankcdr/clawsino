@@ -1,9 +1,14 @@
 import { Router, type Request, type Response } from "express";
+import crypto from "crypto";
 import { playCoinflip, type CoinSide } from "../games/coinflip.js";
 import { playDice, calculateMultiplier, type DicePrediction } from "../games/dice.js";
 import { playBlackjack } from "../games/blackjack.js";
 
 const router = Router();
+
+function gameId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+}
 
 // --- Game catalog ---
 
@@ -79,7 +84,7 @@ router.post("/coinflip", (req: Request, res: Response) => {
     }
 
     const result = playCoinflip({ choice: choice as CoinSide, bet, clientSeed });
-    res.json(result);
+    res.json({ game_id: gameId("flip"), ...result });
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }
@@ -111,7 +116,7 @@ router.post("/dice", (req: Request, res: Response) => {
     }
 
     const result = playDice({ prediction: prediction as DicePrediction, target, bet, clientSeed });
-    res.json(result);
+    res.json({ game_id: gameId("dice"), ...result });
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }
@@ -129,7 +134,7 @@ router.post("/blackjack", (req: Request, res: Response) => {
     }
 
     const result = playBlackjack({ bet, clientSeed });
-    res.json(result);
+    res.json({ game_id: gameId("bj"), ...result });
   } catch (err) {
     res.status(500).json({ error: "Game error", details: String(err) });
   }
