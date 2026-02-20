@@ -145,11 +145,14 @@ The `--demo` flag shows the complete x402 payment negotiation:
 
 Watch the x402 flow in real-time: `http://localhost:3000/dashboard`
 
+![Clawsino Live Dashboard](docs/dashboard.jpg)
+
 The dashboard shows:
 - **Event feed** — every request/response, color-coded by step
 - **Full JSON** — click any event to see complete payloads
-- **Flow visualization** — animated pipeline
+- **Flow visualization** — animated AGENT → REQUEST → 402 → PAYMENT → RESULT pipeline
 - **Scoreboard** — live win/loss tally and P&L
+- **On-chain settlement** — bet tx, payout tx, and result for every game
 
 ## API Endpoints
 
