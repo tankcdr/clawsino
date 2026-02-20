@@ -251,23 +251,68 @@ def cmd_stats():
     print(f"  Total P&L: ${stats['total_pnl']:+.4f}")
 
 
+def _format_card(card: dict) -> str:
+    """Format a card dict as a nice string like 'K♠'."""
+    return f"{card.get('rank','?')}{card.get('suit','')}"
+
+
+def _format_hand(cards: list) -> str:
+    """Format a list of card dicts into a hand string."""
+    if not cards or not isinstance(cards, list):
+        return "?"
+    return "  ".join(_format_card(c) for c in cards)
+
+
 def _print_result(result: dict):
     """Pretty-print a game result."""
     if result.get("error"):
         print(f"\n❌ {result.get('message', result['error'])}")
         return
-    won = result.get("won", False)
-    emoji = "🎉" if won else "😞"
-    print(f"\n{emoji} {'WIN' if won else 'LOSS'}")
-    payout = result.get("payout", 0)
-    if won:
-        print(f"   Payout: ${payout:.4f} USDC")
-    # Show result details
-    for key in ("result", "roll", "total", "player_hand", "dealer_hand"):
-        if key in result:
-            print(f"   {key}: {result[key]}")
+
+    game = result.get("game", "")
+
+    # Blackjack — show hands
+    if game == "blackjack" or "playerHand" in result:
+        outcome = result.get("outcome", "")
+        emoji_map = {"win": "🎉", "blackjack": "🃏🔥", "push": "🤝", "lose": "😞"}
+        label_map = {"win": "WIN", "blackjack": "BLACKJACK!", "push": "PUSH", "lose": "LOSS"}
+        emoji = emoji_map.get(outcome, "🎰")
+        label = label_map.get(outcome, outcome.upper())
+
+        print(f"\n{emoji} {label}")
+        print()
+        player_hand = result.get("playerHand", [])
+        dealer_hand = result.get("dealerHand", [])
+        print(f"   Your hand:   {_format_hand(player_hand)}  ({result.get('playerTotal', '?')})")
+        print(f"   Dealer hand: {_format_hand(dealer_hand)}  ({result.get('dealerTotal', '?')})")
+        print()
+        payout = result.get("payout", 0)
+        bet = result.get("bet", 0)
+        if outcome in ("win", "blackjack"):
+            print(f"   💰 Payout: ${payout:.2f} USDC (+${payout - bet:.2f})")
+        elif outcome == "push":
+            print(f"   ↩️  Push — ${bet:.2f} returned")
+        else:
+            print(f"   💸 Lost ${bet:.2f} USDC")
+    else:
+        # Coinflip / Dice
+        won = result.get("won", False)
+        emoji = "🎉" if won else "😞"
+        print(f"\n{emoji} {'WIN' if won else 'LOSS'}")
+        payout = result.get("payout", 0)
+        bet = result.get("bet", 0)
+        if won:
+            print(f"   💰 Payout: ${payout:.4f} USDC (+${payout - bet:.4f})")
+        else:
+            print(f"   💸 Lost ${bet:.4f} USDC")
+        # Show game-specific details
+        if "result" in result:
+            print(f"   Result: {result['result']}")
+        if "roll" in result:
+            print(f"   Roll: {result['roll']}")
+
     if result.get("fairness_proof"):
-        print(f"   Fairness proof: included (verify with 'clawsino verify <game_id>')")
+        print(f"   🔐 Fairness proof included (verify with 'clawsino verify <game_id>')")
     if result.get("game_id"):
         print(f"   Game ID: {result['game_id']}")
 
