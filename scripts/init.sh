@@ -25,6 +25,13 @@ done
 echo "🚀 Deploying contracts..."
 cd /contracts
 
+# Install dependencies if lib/ is missing or empty
+if [ ! -f "lib/forge-std/src/Script.sol" ]; then
+    echo "📦 Installing forge dependencies..."
+    git init --quiet 2>/dev/null || true
+    forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts --no-commit 2>/dev/null || true
+fi
+
 OUTPUT=$(DEPLOYER_PRIVATE_KEY="$DEPLOYER_KEY" GAME_SERVER_ADDRESS="$GAME_SERVER_ADDR" \
     forge script script/Deploy.s.sol:Deploy \
     --rpc-url "$RPC_URL" \
