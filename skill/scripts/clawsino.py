@@ -43,9 +43,20 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
         reqs = body1.get("paymentRequirements", [])
         if reqs:
             r = reqs[0]
-            lines.append(f"  x402 payment needed: {r.get('maxAmountRequired', '?')} {r.get('asset', 'USDC')}")
-            pay_to = r.get("payTo", "0x???")
-            lines.append(f"  Pay to: {pay_to[:8]}...{pay_to[-4:]} ({_network_label(r.get('network', ''))})")
+            extra = r.get("extra", {})
+            lines.append(f"  ┌─ x402 PaymentRequirement ─────────────")
+            lines.append(f"  │ scheme:    {r.get('scheme', '?')}")
+            lines.append(f"  │ network:   {r.get('network', '?')}")
+            lines.append(f"  │ asset:     {r.get('asset', 'USDC')}")
+            lines.append(f"  │ amount:    {r.get('maxAmountRequired', '?')} USDC")
+            lines.append(f"  │ payTo:     {r.get('payTo', '?')}")
+            if extra.get("usdcAddress"):
+                lines.append(f"  │ USDC contract: {extra['usdcAddress']}")
+            if extra.get("payoutAddress"):
+                lines.append(f"  │ Payout contract: {extra['payoutAddress']}")
+            if extra.get("mode"):
+                lines.append(f"  │ mode:     {extra['mode']}")
+            lines.append(f"  └──────────────────────────────────────")
         else:
             lines.append(f"  {body1.get('message', 'Payment required')}")
     lines.append("")
@@ -54,9 +65,19 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
     step2_data = trace["steps"][1] if len(trace["steps"]) > 1 else {}
     tx_hash = step2_data.get("tx_hash", "0x???")
     is_onchain = step2_data.get("onchain", False)
+    player_addr = None
+    try:
+        player_addr = wallet.get_address()
+    except Exception:
+        pass
     if is_onchain:
-        lines.append("💳 Signing REAL USDC transfer on-chain...")
-        lines.append(f"   tx: {tx_hash}")
+        lines.append("💳 Signing USDC transfer on Base...")
+        if player_addr:
+            lines.append(f"   from:  {player_addr}")
+        pay_to = reqs[0].get("payTo", "?") if reqs else "?"
+        lines.append(f"   to:    {pay_to}")
+        lines.append(f"   value: {data.get('bet', '?')} USDC")
+        lines.append(f"   ⛓️  tx: {tx_hash}")
     else:
         lines.append("💳 Signing USDC payment (dev mode)...")
     lines.append("")
@@ -92,13 +113,16 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
         if outcome:
             outcome_map = {"win": "WIN ✅", "blackjack": "BLACKJACK! 🔥", "push": "PUSH 🤝", "lose": "LOSS ❌"}
             lines.append(f"  Outcome: {outcome_map.get(outcome, outcome.upper())}")
-        # Show on-chain tx hashes
+        # Show on-chain tx hashes (full — this is the point of the demo)
         bet_tx = body2.get("betTxHash")
         payout_tx = body2.get("payoutTxHash")
-        if bet_tx:
-            lines.append(f"  Bet Tx: {bet_tx[:12]}...{bet_tx[-6:]}")
-        if payout_tx:
-            lines.append(f"  Payout Tx: {payout_tx[:12]}...{payout_tx[-6:]}")
+        if bet_tx or payout_tx:
+            lines.append("")
+            lines.append("  ⛓️  On-chain settlement:")
+            if bet_tx:
+                lines.append(f"     Bet tx:    {bet_tx}")
+            if payout_tx:
+                lines.append(f"     Payout tx: {payout_tx}")
         game_id = body2.get("game_id")
         if game_id:
             lines.append(f"  Game ID: {game_id}")
@@ -138,16 +162,33 @@ def _network_label(network: str) -> str:
     return network
 
 
+def _get_local_usdc_address() -> str | None:
+    """Probe the server's 402 response to get the local USDC contract address."""
+    try:
+        probe = requests.post(f"{wallet.get_server_url()}/api/coinflip",
+            json={"choice": "heads", "bet": 0.01},
+            headers={"Content-Type": "application/json"}, timeout=5)
+        if probe.status_code == 402:
+            reqs = probe.json().get("paymentRequirements", [])
+            if reqs:
+                return reqs[0].get("extra", {}).get("usdcAddress")
+    except Exception:
+        pass
+    return None
+
+
 def _demo_play(game_name: str, endpoint: str, data: dict) -> str:
     """Execute demo two-step flow and return formatted output."""
     # If onchain, show balance before/after
     rpc_url = os.environ.get("CLAWSINO_RPC_URL")
     balance_before = None
     balance_after = None
+    usdc_addr = None
 
     if rpc_url:
         try:
-            balance_before = wallet.get_usdc_balance(rpc_url=rpc_url)
+            usdc_addr = _get_local_usdc_address()
+            balance_before = wallet.get_usdc_balance(rpc_url=rpc_url, usdc_address=usdc_addr)
         except Exception:
             pass
 
@@ -155,7 +196,7 @@ def _demo_play(game_name: str, endpoint: str, data: dict) -> str:
 
     if rpc_url:
         try:
-            balance_after = wallet.get_usdc_balance(rpc_url=rpc_url)
+            balance_after = wallet.get_usdc_balance(rpc_url=rpc_url, usdc_address=usdc_addr)
         except Exception:
             pass
 
