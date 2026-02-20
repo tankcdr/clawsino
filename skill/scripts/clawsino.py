@@ -81,11 +81,16 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
         if outcome:
             outcome_map = {"win": "WIN ✅", "blackjack": "BLACKJACK! 🔥", "push": "PUSH 🤝", "lose": "LOSS ❌"}
             lines.append(f"  Outcome: {outcome_map.get(outcome, outcome.upper())}")
+        game_id = body2.get("game_id")
+        if game_id:
+            lines.append(f"  Game ID: {game_id}")
         fp = body2.get("fairness_proof")
         if fp and isinstance(fp, dict):
             verified = fp.get("verified", fp.get("valid", False))
             lines.append("")
             lines.append(f"🔐 Fairness: {'verified ✓' if verified else 'unverified'}")
+            if game_id:
+                lines.append(f"   → clawsino verify {game_id}")
     else:
         lines.append(f"  {json.dumps(body2, indent=2)}")
 
