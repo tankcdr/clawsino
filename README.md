@@ -100,32 +100,6 @@ The dashboard shows:
 
 Play games from the CLI and watch them appear on the dashboard in real-time. Great for demos on a projector.
 
-## Demo Mode vs Production
-
-### Demo Mode (default in Docker)
-
-The local setup runs in **demo mode** — the x402 protocol flow is real, but no actual funds move:
-
-- Server returns authentic 402 Payment Required responses with real `PaymentRequirement` objects
-- Client sends a `x402:dev:<hash>` token instead of a real signed payment
-- Server accepts dev tokens and serves the game
-- No contracts are deployed or called — game logic runs server-side only
-- **What's real:** the HTTP 402 negotiation, game logic, fairness proofs, full JSON payloads
-- **What's simulated:** the actual USDC transfer and on-chain settlement
-
-This is ideal for demos — the audience sees the complete x402 protocol without needing funded wallets.
-
-### Production Mode
-
-For real money gameplay, the full pipeline would be:
-
-1. Deploy `ClawsinoPayout.sol` and `FairnessVerifier.sol` to Base
-2. Fund the house bankroll with USDC
-3. Client wallet signs a real USDC transfer to the house address
-4. Server verifies the on-chain transfer before serving the game
-5. Winnings are paid out from `ClawsinoPayout.sol`
-6. Fairness proofs can be verified on-chain via `FairnessVerifier.sol`
-
 ## Provable Fairness
 
 Every game returns a `fairness_proof` object with:
