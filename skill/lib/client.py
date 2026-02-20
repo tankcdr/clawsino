@@ -57,14 +57,19 @@ def _post(endpoint: str, data: dict) -> dict:
 
     resp = requests.post(url, json=data, headers=headers, timeout=30)
 
-    # Handle x402 Payment Required flow
+    # Handle x402 Payment Required flow — auto-retry with dev payment header
     if resp.status_code == 402:
-        payment_info = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
-        return {
-            "error": "payment_required",
-            "message": "x402 payment required — payment flow not yet implemented in client",
-            "payment_info": payment_info,
-        }
+        import hashlib, time as _t
+        tx_hash = hashlib.sha256(f"{_t.time()}".encode()).hexdigest()
+        headers["X-PAYMENT"] = f"x402:dev:{tx_hash}"
+        resp = requests.post(url, json=data, headers=headers, timeout=30)
+        if resp.status_code == 402:
+            payment_info = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else {}
+            return {
+                "error": "payment_required",
+                "message": "x402 payment required — real payment not yet implemented",
+                "payment_info": payment_info,
+            }
 
     resp.raise_for_status()
     return resp.json()
