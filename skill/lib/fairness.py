@@ -44,14 +44,31 @@ def verify_commit_reveal(
 def verify_game_proof(proof: dict) -> bool:
     """Verify a fairness proof dict from the game server.
 
-    Expected keys: server_seed, nonce, committed_hash, hash_algo (optional).
+    Handles both snake_case and camelCase field names from the server.
+    Server sends: serverSeed, serverSeedHash, clientSeed, nonce, combinedHash
     """
-    if not proof or "server_seed" not in proof:
+    if not proof:
         return False
 
-    return verify_commit_reveal(
-        server_seed=proof["server_seed"],
-        nonce=proof.get("nonce", ""),
-        committed_hash=proof["committed_hash"],
-        hash_algo=proof.get("hash_algo", "sha256"),
-    )
+    server_seed = proof.get("serverSeed") or proof.get("server_seed")
+    nonce = proof.get("nonce", "")
+    committed_hash = proof.get("serverSeedHash") or proof.get("committed_hash")
+    hash_algo = proof.get("hash_algo", "sha256")
+
+    if not server_seed or not committed_hash:
+        return False
+
+    # Verify: hash(serverSeed + nonce) == serverSeedHash
+    if not verify_commit_reveal(server_seed, nonce, committed_hash, hash_algo):
+        return False
+
+    # Also verify combinedHash if present
+    combined_hash = proof.get("combinedHash") or proof.get("combined_hash")
+    client_seed = proof.get("clientSeed") or proof.get("client_seed", "")
+    if combined_hash:
+        preimage = server_seed + client_seed + nonce
+        computed = sha256_hex(preimage)
+        if computed.lower().removeprefix("0x") != combined_hash.lower().removeprefix("0x"):
+            return False
+
+    return True
