@@ -128,6 +128,17 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "clawsino", version: "0.1.0" });
 });
 
+// Contract info (for clients to discover addresses without triggering game events)
+app.get("/api/contracts", (_req, res) => {
+  res.json({
+    mode: isOnchain ? "onchain" : isDemo ? "demo" : "dev",
+    network: paymentConfig.network,
+    usdc: paymentConfig.usdcAddress || null,
+    payout: paymentConfig.payoutAddress || null,
+    payTo: paymentConfig.payTo,
+  });
+});
+
 // Root
 app.get("/", (_req, res) => {
   res.json({

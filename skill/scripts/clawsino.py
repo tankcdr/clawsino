@@ -163,15 +163,11 @@ def _network_label(network: str) -> str:
 
 
 def _get_local_usdc_address() -> str | None:
-    """Probe the server's 402 response to get the local USDC contract address."""
+    """Get the USDC contract address from the server's /api/contracts endpoint."""
     try:
-        probe = requests.post(f"{wallet.get_server_url()}/api/coinflip",
-            json={"choice": "heads", "bet": 0.01},
-            headers={"Content-Type": "application/json"}, timeout=5)
-        if probe.status_code == 402:
-            reqs = probe.json().get("paymentRequirements", [])
-            if reqs:
-                return reqs[0].get("extra", {}).get("usdcAddress")
+        resp = requests.get(f"{wallet.get_server_url()}/api/contracts", timeout=5)
+        if resp.status_code == 200:
+            return resp.json().get("usdc")
     except Exception:
         pass
     return None
@@ -306,23 +302,9 @@ def cmd_balance():
     try:
         rpc_url = wallet.get_rpc_url()
         usdc_addr = None
-        # Try to get USDC address from server (for local/onchain mode)
-        try:
-            import requests as _req
-            resp = _req.get(f"{wallet.get_server_url()}/health", timeout=5)
-            if resp.status_code == 200:
-                # Probe a game endpoint to get contract info from 402
-                probe = _req.post(f"{wallet.get_server_url()}/api/coinflip",
-                    json={"choice": "heads", "bet": 0.01},
-                    headers={"Content-Type": "application/json"}, timeout=5)
-                if probe.status_code == 402:
-                    body = probe.json()
-                    reqs = body.get("paymentRequirements", [])
-                    if reqs:
-                        extra = reqs[0].get("extra", {})
-                        usdc_addr = extra.get("usdcAddress")
-        except Exception:
-            pass
+        # Try to get USDC address from server config
+        usdc_addr = _get_local_usdc_address()
+
         if rpc_url == "https://mainnet.base.org":
             rpc_url = None
         bal = wallet.get_usdc_balance(addr, rpc_url=rpc_url, usdc_address=usdc_addr)
