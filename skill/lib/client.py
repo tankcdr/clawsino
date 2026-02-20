@@ -6,7 +6,7 @@ from pathlib import Path
 
 import requests
 
-from lib.wallet import get_server_url, get_address, get_account, transfer_usdc, get_usdc_balance
+from lib.wallet import get_server_url, get_address, get_account, transfer_usdc, get_usdc_balance, get_rpc_url
 
 HISTORY_DIR = Path.home() / ".openclaw" / "clawsino"
 HISTORY_FILE = HISTORY_DIR / "history.json"
