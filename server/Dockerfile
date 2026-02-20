@@ -6,7 +6,7 @@ COPY server/package*.json ./
 RUN npm install
 
 COPY server/ .
-RUN npm run build 2>/dev/null || true
+RUN npm run build
 
 # Dashboard
 COPY dashboard/ /dashboard

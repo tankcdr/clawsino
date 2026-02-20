@@ -1,6 +1,7 @@
 node_modules/
 .env
+.env.bak
 contracts/out/
 contracts/cache/
 contracts/lib/
-.env
+server/dist/

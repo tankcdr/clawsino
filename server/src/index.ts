@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import gameRoutes from "./routes/games.js";
 import { paymentMiddleware } from "./middleware/payment.js";
 import { rateLimitMiddleware } from "./middleware/rateLimit.js";
+import { requestLoggingMiddleware } from "./middleware/logging.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,9 +51,18 @@ if (contractsFile && fs.existsSync(contractsFile)) {
   }
 }
 
-// Middleware
-app.use(cors());
+// CORS — configurable origins for future UI
+const corsOrigins = process.env.CORS_ORIGINS;
+const corsOptions = corsOrigins && corsOrigins !== "*"
+  ? { origin: corsOrigins.split(",").map(s => s.trim()), credentials: true }
+  : { origin: "*" };
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Request logging middleware for game endpoints
+app.use("/api/coinflip", requestLoggingMiddleware());
+app.use("/api/dice", requestLoggingMiddleware());
+app.use("/api/blackjack", requestLoggingMiddleware());
 
 // Rate limiting — 60 requests per minute per IP for game endpoints
 app.use("/api/coinflip", rateLimitMiddleware({ windowMs: 60_000, maxRequests: 60 }));
