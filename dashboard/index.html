@@ -61,6 +61,13 @@
   .json-block { background: #0d0d0d; border: 1px solid #222; border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 0.78em; line-height: 1.5; white-space: pre-wrap; word-break: break-all; animation: fadeIn 0.3s ease; }
   .cards-display { margin: 12px 0; padding: 12px; background: var(--bg3); border-radius: 6px; font-size: 1.3em; letter-spacing: 2px; }
   .cards-display .label { font-size: 0.6em; color: var(--dim); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px; }
+  .chain-block { margin: 12px 0; padding: 12px; background: #0d1117; border: 1px solid #1a3a2a; border-radius: 6px; font-size: 0.8em; }
+  .chain-block .chain-title { font-size: 0.7em; text-transform: uppercase; color: var(--cyan); margin-bottom: 8px; letter-spacing: 1px; }
+  .chain-row { display: flex; gap: 8px; margin: 4px 0; align-items: baseline; }
+  .chain-label { color: var(--dim); min-width: 100px; }
+  .chain-value { color: var(--green); word-break: break-all; font-family: monospace; }
+  .chain-value.tx { color: var(--cyan); }
+  .chain-value.addr { color: var(--orange); }
 
   /* JSON syntax highlighting */
   .json-key { color: var(--cyan); } .json-string { color: var(--green); }
@@ -190,7 +197,7 @@ function addEventToFeed(evt, idx) {
   let summary = '';
   if (evt.type === 'request') summary = `bet: ${evt.body?.bet || '?'} ${evt.body?.choice || evt.body?.prediction || ''}`;
   else if (evt.type === 'payment_required') summary = `${evt.paymentRequirements?.[0]?.maxAmountRequired || '?'} USDC required`;
-  else if (evt.type === 'payment_received') summary = `x-payment header received`;
+  else if (evt.type === 'payment_received') { const h = evt.paymentHeader || ''; summary = h.startsWith('x402:tx:') ? `⛓️ tx: ${h.substring(8,20)}...` : `x-payment received`; }
   else if (evt.type === 'result') summary = `payout: ${evt.body?.payout || 0} USDC`;
 
   div.innerHTML = `
@@ -213,24 +220,79 @@ function showDetail(evt) {
   // For blackjack results, show cards
   if (evt.type === 'result' && evt.game === 'blackjack' && evt.body) {
     const b = evt.body;
-    if (b.player_hand) {
-      html += `<div class="cards-display"><div class="label">Player (${b.player_value || ''})</div>${formatCards(b.player_hand)}</div>`;
+    const ph = b.playerHand || b.player_hand;
+    const dh = b.dealerHand || b.dealer_hand;
+    if (ph) {
+      html += `<div class="cards-display"><div class="label">Player (${b.playerTotal || b.player_value || ''})</div>${formatCards(ph)}</div>`;
     }
-    if (b.dealer_hand) {
-      html += `<div class="cards-display"><div class="label">Dealer (${b.dealer_value || ''})</div>${formatCards(b.dealer_hand)}</div>`;
+    if (dh) {
+      html += `<div class="cards-display"><div class="label">Dealer (${b.dealerTotal || b.dealer_value || ''})</div>${formatCards(dh)}</div>`;
+    }
+  }
+
+  // On-chain details for payment_required
+  if (evt.type === 'payment_required') {
+    const reqs = evt.paymentRequirements;
+    if (Array.isArray(reqs) && reqs[0]) {
+      const r = reqs[0];
+      const extra = r.extra || {};
+      html += `<div class="chain-block"><div class="chain-title">⛓️ x402 Payment Requirement</div>`;
+      html += chainRow('Scheme', r.scheme);
+      html += chainRow('Network', r.network);
+      html += chainRow('Asset', r.asset);
+      html += chainRow('Amount', r.maxAmountRequired + ' USDC');
+      html += chainRow('Pay To', r.payTo, 'addr');
+      if (extra.usdcAddress) html += chainRow('USDC Contract', extra.usdcAddress, 'addr');
+      if (extra.payoutAddress) html += chainRow('Payout Contract', extra.payoutAddress, 'addr');
+      if (extra.mode) html += chainRow('Mode', extra.mode);
+      html += `</div>`;
+    }
+  }
+
+  // On-chain details for payment_received
+  if (evt.type === 'payment_received' && evt.paymentHeader) {
+    html += `<div class="chain-block"><div class="chain-title">💳 Payment Header</div>`;
+    html += chainRow('X-PAYMENT', evt.paymentHeader, 'tx');
+    html += `</div>`;
+  }
+
+  // On-chain settlement for results
+  if (evt.type === 'result' && evt.body) {
+    const b = evt.body;
+    if (b.betTxHash || b.payoutTxHash) {
+      html += `<div class="chain-block"><div class="chain-title">⛓️ On-Chain Settlement</div>`;
+      if (b.betTxHash) html += chainRow('Bet Tx', b.betTxHash, 'tx');
+      if (b.payoutTxHash) html += chainRow('Payout Tx', b.payoutTxHash, 'tx');
+      const won = b.outcome === 'win' || b.outcome === 'blackjack' || b.won === true;
+      html += chainRow('Bet', (b.bet || 0) + ' USDC');
+      html += chainRow('Payout', (b.payout || 0) + ' USDC');
+      html += chainRow('Result', won ? '✅ WIN' : b.outcome === 'push' ? '🤝 PUSH' : '❌ LOSS');
+      html += `</div>`;
     }
   }
 
   // Full JSON
   const jsonData = evt.type === 'result' ? evt.body : evt;
+  html += `<h3 style="margin-top:16px;">Raw JSON</h3>`;
   html += `<div class="json-block">${syntaxHighlight(JSON.stringify(jsonData, null, 2))}</div>`;
   
   detail.innerHTML = html;
 }
 
+function chainRow(label, value, cls) {
+  return `<div class="chain-row"><span class="chain-label">${label}</span><span class="chain-value ${cls || ''}">${value || '—'}</span></div>`;
+}
+
 function formatCards(cards) {
   if (!Array.isArray(cards)) return String(cards);
-  return cards.map(c => `<span style="font-size:1.2em;margin:0 2px;">${c}</span>`).join(' ');
+  return cards.map(c => {
+    if (typeof c === 'object' && c.rank) {
+      const suit = c.suit || '';
+      const color = (suit === '♥' || suit === '♦') ? 'var(--red)' : 'var(--white)';
+      return `<span style="font-size:1.2em;margin:0 4px;color:${color}">${c.rank}${suit}</span>`;
+    }
+    return `<span style="font-size:1.2em;margin:0 2px;">${c}</span>`;
+  }).join(' ');
 }
 
 function syntaxHighlight(json) {
