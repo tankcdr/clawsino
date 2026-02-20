@@ -67,10 +67,20 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
         payout = body2.get("payout")
         if payout is not None:
             lines.append(f"  Payout: {payout} USDC")
-        if body2.get("player_hand"):
-            lines.append(f"  Player: {body2['player_hand']}")
-        if body2.get("dealer_hand"):
-            lines.append(f"  Dealer: {body2['dealer_hand']}")
+        # Blackjack hands (camelCase from server)
+        player_hand = body2.get("playerHand") or body2.get("player_hand")
+        dealer_hand = body2.get("dealerHand") or body2.get("dealer_hand")
+        if player_hand:
+            hand_str = "  ".join(f"{c.get('rank','?')}{c.get('suit','')}" for c in player_hand)
+            lines.append(f"  Your hand:   {hand_str}  ({body2.get('playerTotal', '?')})")
+        if dealer_hand:
+            hand_str = "  ".join(f"{c.get('rank','?')}{c.get('suit','')}" for c in dealer_hand)
+            lines.append(f"  Dealer hand: {hand_str}  ({body2.get('dealerTotal', '?')})")
+        # Blackjack outcome
+        outcome = body2.get("outcome")
+        if outcome:
+            outcome_map = {"win": "WIN ✅", "blackjack": "BLACKJACK! 🔥", "push": "PUSH 🤝", "lose": "LOSS ❌"}
+            lines.append(f"  Outcome: {outcome_map.get(outcome, outcome.upper())}")
         fp = body2.get("fairness_proof")
         if fp and isinstance(fp, dict):
             verified = fp.get("verified", fp.get("valid", False))
@@ -83,11 +93,16 @@ def _demo_format(game_name: str, endpoint: str, data: dict, trace: dict) -> str:
 
     # Bottom line summary
     if isinstance(body2, dict) and not body2.get("error"):
-        won = body2.get("won", False)
+        outcome = body2.get("outcome")
+        won = body2.get("won", outcome in ("win", "blackjack") if outcome else False)
         bet = data.get("bet", 0)
         payout = body2.get("payout", 0)
         pnl = payout - bet
-        if won:
+        if outcome == "push":
+            lines.append(f"🤝 PUSH — ${bet:.2f} returned")
+        elif outcome == "blackjack":
+            lines.append(f"🃏🔥 BLACKJACK! +${pnl:.2f} USDC")
+        elif won:
             lines.append(f"✅ YOU WIN +${pnl:.2f} USDC")
         else:
             lines.append(f"❌ YOU LOSE -${bet:.2f} USDC")
