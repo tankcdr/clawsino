@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🎰 Clawsino Live Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0a0a; --bg2: #111; --bg3: #1a1a1a;
+    --cyan: #00e5ff; --green: #00e676; --red: #ff1744;
+    --yellow: #ffd600; --orange: #ff9100; --blue: #448aff;
+    --dim: #555; --text: #e0e0e0; --white: #fff;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; overflow: hidden; height: 100vh; }
+  
+  /* Header */
+  .header { display: flex; justify-content: space-between; align-items: center; padding: 12px 24px; background: var(--bg2); border-bottom: 1px solid #222; }
+  .header h1 { font-size: 1.4em; }
+  .header h1 span { color: var(--cyan); }
+  .scoreboard { display: flex; gap: 20px; font-size: 0.95em; }
+  .scoreboard .stat { display: flex; align-items: center; gap: 6px; }
+  .stat-w { color: var(--green); } .stat-l { color: var(--red); } .stat-p { color: var(--yellow); }
+  .stat-wagered { color: var(--orange); } .stat-pnl { }
+  .ws-status { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .ws-connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .ws-disconnected { background: var(--red); box-shadow: 0 0 6px var(--red); }
+
+  /* Main layout */
+  .main { display: flex; height: calc(100vh - 52px - 100px); }
+  
+  /* Event Feed */
+  .feed { width: 40%; border-right: 1px solid #222; overflow-y: auto; padding: 8px; }
+  .feed::-webkit-scrollbar { width: 4px; } .feed::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+  .event { padding: 10px 12px; margin-bottom: 4px; border-radius: 6px; cursor: pointer; border-left: 3px solid transparent; transition: background 0.15s; animation: fadeIn 0.3s ease; }
+  .event:hover { background: var(--bg3); }
+  .event.selected { background: var(--bg3); }
+  .event.type-request { border-left-color: var(--blue); }
+  .event.type-payment_required { border-left-color: var(--yellow); }
+  .event.type-payment_received { border-left-color: var(--orange); }
+  .event.type-result-win { border-left-color: var(--green); }
+  .event.type-result-lose { border-left-color: var(--red); }
+  .event.type-result-push { border-left-color: var(--yellow); }
+  .event-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .event-type { font-size: 0.7em; text-transform: uppercase; font-weight: bold; padding: 2px 6px; border-radius: 3px; }
+  .event-type.request { background: #1a237e; color: var(--blue); }
+  .event-type.payment_required { background: #4a3800; color: var(--yellow); }
+  .event-type.payment_received { background: #4a2800; color: var(--orange); }
+  .event-type.win { background: #1b3a1b; color: var(--green); }
+  .event-type.lose { background: #3a1b1b; color: var(--red); }
+  .event-type.push { background: #3a3a1b; color: var(--yellow); }
+  .event-time { font-size: 0.7em; color: var(--dim); }
+  .event-summary { font-size: 0.8em; color: #aaa; }
+  .event-game { font-size: 0.85em; }
+
+  /* Detail panel */
+  .detail { flex: 1; overflow-y: auto; padding: 16px; }
+  .detail::-webkit-scrollbar { width: 4px; } .detail::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+  .detail-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--dim); font-size: 1.1em; }
+  .detail h3 { margin-bottom: 12px; color: var(--cyan); }
+  .json-block { background: #0d0d0d; border: 1px solid #222; border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 0.78em; line-height: 1.5; white-space: pre-wrap; word-break: break-all; animation: fadeIn 0.3s ease; }
+  .cards-display { margin: 12px 0; padding: 12px; background: var(--bg3); border-radius: 6px; font-size: 1.3em; letter-spacing: 2px; }
+  .cards-display .label { font-size: 0.6em; color: var(--dim); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 1px; }
+
+  /* JSON syntax highlighting */
+  .json-key { color: var(--cyan); } .json-string { color: var(--green); }
+  .json-number { color: var(--orange); } .json-boolean { color: var(--yellow); }
+  .json-null { color: var(--dim); }
+
+  /* Flow visualization */
+  .flow { height: 100px; background: var(--bg2); border-top: 1px solid #222; display: flex; align-items: center; justify-content: center; gap: 0; padding: 0 40px; }
+  .flow-node { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 16px; border-radius: 8px; border: 2px solid #333; background: var(--bg); transition: all 0.3s; min-width: 90px; }
+  .flow-node.active { border-color: var(--cyan); box-shadow: 0 0 15px rgba(0,229,255,0.3); animation: pulse 1s ease infinite; }
+  .flow-node.done { border-color: var(--green); opacity: 0.7; }
+  .flow-node .icon { font-size: 1.3em; }
+  .flow-node .label { font-size: 0.65em; color: var(--dim); text-transform: uppercase; }
+  .flow-arrow { font-size: 1.2em; color: #333; margin: 0 8px; transition: color 0.3s; }
+  .flow-arrow.lit { color: var(--cyan); text-shadow: 0 0 8px var(--cyan); }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pulse { 0%,100% { box-shadow: 0 0 10px rgba(0,229,255,0.2); } 50% { box-shadow: 0 0 25px rgba(0,229,255,0.5); } }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎰 <span>CLAWSINO</span> LIVE <span class="ws-status ws-disconnected" id="wsStatus"></span></h1>
+  <div class="scoreboard">
+    <div class="stat stat-w">W:<span id="wins">0</span></div>
+    <div class="stat stat-l">L:<span id="losses">0</span></div>
+    <div class="stat stat-p">P:<span id="pushes">0</span></div>
+    <div class="stat stat-wagered">💰 <span id="wagered">0.00</span></div>
+    <div class="stat stat-pnl" id="pnlStat">P&L: <span id="pnl">0.00</span></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="feed" id="feed"></div>
+  <div class="detail" id="detail">
+    <div class="detail-empty">Click an event or wait for games...</div>
+  </div>
+</div>
+
+<div class="flow">
+  <div class="flow-node" id="fn-agent"><div class="icon">🤖</div><div class="label">Agent</div></div>
+  <div class="flow-arrow" id="fa-1">▶</div>
+  <div class="flow-node" id="fn-request"><div class="icon">📤</div><div class="label">Request</div></div>
+  <div class="flow-arrow" id="fa-2">▶</div>
+  <div class="flow-node" id="fn-402"><div class="icon">🔒</div><div class="label">402</div></div>
+  <div class="flow-arrow" id="fa-3">▶</div>
+  <div class="flow-node" id="fn-payment"><div class="icon">💳</div><div class="label">Payment</div></div>
+  <div class="flow-arrow" id="fa-4">▶</div>
+  <div class="flow-node" id="fn-result"><div class="icon">🎲</div><div class="label">Result</div></div>
+</div>
+
+<script>
+const GAME_EMOJI = { coinflip: '🪙', dice: '🎲', blackjack: '🃏' };
+const state = { wins: 0, losses: 0, pushes: 0, wagered: 0, pnl: 0, events: [], selected: null };
+
+// WebSocket connection with auto-reconnect
+let ws;
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => { document.getElementById('wsStatus').className = 'ws-status ws-connected'; };
+  ws.onclose = () => { document.getElementById('wsStatus').className = 'ws-status ws-disconnected'; setTimeout(connect, 2000); };
+  ws.onmessage = (e) => { try { handleEvent(JSON.parse(e.data)); } catch(err) { console.error(err); } };
+}
+connect();
+
+function handleEvent(evt) {
+  state.events.unshift(evt);
+  if (state.events.length > 200) state.events.pop();
+
+  // Update flow visualization
+  updateFlow(evt.type);
+
+  // Update scoreboard for results
+  if (evt.type === 'result' && evt.body) {
+    const b = evt.body;
+    const bet = b.bet || 0;
+    const payout = b.payout || 0;
+    state.wagered += bet;
+    state.pnl += (payout - bet);
+    // Normalize: blackjack has outcome, coinflip/dice have won:boolean
+    const outcome = b.outcome || (b.won === true ? 'win' : b.won === false ? 'lose' : null);
+    if (outcome === 'win' || outcome === 'blackjack') state.wins++;
+    else if (outcome === 'lose' || outcome === 'bust') state.losses++;
+    else if (outcome === 'push') state.pushes++;
+    updateScoreboard();
+  }
+
+  addEventToFeed(evt, 0);
+
+  // Auto-select latest result
+  if (evt.type === 'result') showDetail(evt);
+}
+
+function updateScoreboard() {
+  document.getElementById('wins').textContent = state.wins;
+  document.getElementById('losses').textContent = state.losses;
+  document.getElementById('pushes').textContent = state.pushes;
+  document.getElementById('wagered').textContent = state.wagered.toFixed(2);
+  const pnlEl = document.getElementById('pnl');
+  pnlEl.textContent = (state.pnl >= 0 ? '+' : '') + state.pnl.toFixed(2);
+  document.getElementById('pnlStat').style.color = state.pnl >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+function addEventToFeed(evt, idx) {
+  const feed = document.getElementById('feed');
+  const div = document.createElement('div');
+  
+  let typeClass = evt.type;
+  let typeLabel = evt.type.replace('_', ' ');
+  if (evt.type === 'result' && evt.body) {
+    const o = evt.body.outcome || (evt.body.won === true ? 'win' : evt.body.won === false ? 'lose' : 'unknown');
+    if (o === 'win' || o === 'blackjack') { typeClass = 'result-win'; typeLabel = '✅ ' + o; }
+    else if (o === 'lose' || o === 'bust') { typeClass = 'result-lose'; typeLabel = '❌ ' + o; }
+    else if (o === 'push') { typeClass = 'result-push'; typeLabel = '🤝 push'; }
+  }
+
+  const resultOutcome = evt.body?.outcome || (evt.body?.won === true ? 'win' : evt.body?.won === false ? 'lose' : 'unknown');
+  const badge = evt.type === 'result' ? (resultOutcome === 'win' || resultOutcome === 'blackjack' ? 'win' : resultOutcome === 'push' ? 'push' : 'lose') : evt.type;
+  
+  div.className = `event type-${typeClass}`;
+  div.onclick = () => { document.querySelectorAll('.event').forEach(e => e.classList.remove('selected')); div.classList.add('selected'); showDetail(evt); };
+  
+  const time = new Date(evt.timestamp).toLocaleTimeString();
+  const emoji = GAME_EMOJI[evt.game] || '🎮';
+  let summary = '';
+  if (evt.type === 'request') summary = `bet: ${evt.body?.bet || '?'} ${evt.body?.choice || evt.body?.prediction || ''}`;
+  else if (evt.type === 'payment_required') summary = `${evt.paymentRequirements?.[0]?.maxAmountRequired || '?'} USDC required`;
+  else if (evt.type === 'payment_received') summary = `x-payment header received`;
+  else if (evt.type === 'result') summary = `payout: ${evt.body?.payout || 0} USDC`;
+
+  div.innerHTML = `
+    <div class="event-header">
+      <span class="event-game">${emoji} ${evt.game}</span>
+      <span class="event-type ${badge}">${typeLabel}</span>
+    </div>
+    <div class="event-header">
+      <span class="event-summary">${summary}</span>
+      <span class="event-time">${time}</span>
+    </div>`;
+  
+  feed.insertBefore(div, feed.firstChild);
+}
+
+function showDetail(evt) {
+  const detail = document.getElementById('detail');
+  let html = `<h3>${GAME_EMOJI[evt.game] || '🎮'} ${evt.game} — ${evt.type.replace('_',' ')}</h3>`;
+  
+  // For blackjack results, show cards
+  if (evt.type === 'result' && evt.game === 'blackjack' && evt.body) {
+    const b = evt.body;
+    if (b.player_hand) {
+      html += `<div class="cards-display"><div class="label">Player (${b.player_value || ''})</div>${formatCards(b.player_hand)}</div>`;
+    }
+    if (b.dealer_hand) {
+      html += `<div class="cards-display"><div class="label">Dealer (${b.dealer_value || ''})</div>${formatCards(b.dealer_hand)}</div>`;
+    }
+  }
+
+  // Full JSON
+  const jsonData = evt.type === 'result' ? evt.body : evt;
+  html += `<div class="json-block">${syntaxHighlight(JSON.stringify(jsonData, null, 2))}</div>`;
+  
+  detail.innerHTML = html;
+}
+
+function formatCards(cards) {
+  if (!Array.isArray(cards)) return String(cards);
+  return cards.map(c => `<span style="font-size:1.2em;margin:0 2px;">${c}</span>`).join(' ');
+}
+
+function syntaxHighlight(json) {
+  return json.replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+    let cls = 'json-number';
+    if (/^"/.test(match)) { cls = /:$/.test(match) ? 'json-key' : 'json-string'; }
+    else if (/true|false/.test(match)) cls = 'json-boolean';
+    else if (/null/.test(match)) cls = 'json-null';
+    return `<span class="${cls}">${match}</span>`;
+  });
+}
+
+// Flow visualization
+const flowNodes = ['fn-agent','fn-request','fn-402','fn-payment','fn-result'];
+const flowArrows = ['fa-1','fa-2','fa-3','fa-4'];
+let flowTimeout;
+
+function updateFlow(type) {
+  // Reset
+  flowNodes.forEach(id => { const el = document.getElementById(id); el.classList.remove('active','done'); });
+  flowArrows.forEach(id => document.getElementById(id).classList.remove('lit'));
+
+  const stepMap = { request: 1, payment_required: 2, payment_received: 3, result: 4 };
+  const step = stepMap[type] || 0;
+  
+  for (let i = 0; i <= step && i < flowNodes.length; i++) {
+    const el = document.getElementById(flowNodes[i]);
+    if (i < step) { el.classList.add('done'); } else { el.classList.add('active'); }
+  }
+  for (let i = 0; i < step && i < flowArrows.length; i++) {
+    document.getElementById(flowArrows[i]).classList.add('lit');
+  }
+
+  clearTimeout(flowTimeout);
+  flowTimeout = setTimeout(() => {
+    flowNodes.forEach(id => document.getElementById(id).classList.remove('active','done'));
+    flowArrows.forEach(id => document.getElementById(id).classList.remove('lit'));
+  }, 8000);
+}
+</script>
+</body>
+</html>
