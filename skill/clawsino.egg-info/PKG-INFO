@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: clawsino
+Version: 0.1.0
+Summary: OpenClaw skill — agentic casino with USDC microtransactions on Base
+Requires-Python: >=3.10
+Requires-Dist: requests>=2.31
+Requires-Dist: web3>=6.0
+Requires-Dist: eth-account>=0.10

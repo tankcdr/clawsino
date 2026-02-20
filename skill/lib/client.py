@@ -149,7 +149,10 @@ def demo_post(endpoint: str, data: dict) -> dict:
         pay_to = req.get("payTo", "")
         amount = float(req.get("maxAmountRequired", "0"))
         extra = req.get("extra", {})
-        rpc_url = extra.get("rpcUrl")
+        # Prefer client's configured RPC (server may return Docker-internal hostname)
+        rpc_url = get_rpc_url()
+        if rpc_url == "https://mainnet.base.org":
+            rpc_url = extra.get("rpcUrl")
         usdc_address = extra.get("usdcAddress")
 
         try:

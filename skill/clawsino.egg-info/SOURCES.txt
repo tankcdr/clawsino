@@ -1,0 +1,13 @@
+pyproject.toml
+clawsino.egg-info/PKG-INFO
+clawsino.egg-info/SOURCES.txt
+clawsino.egg-info/dependency_links.txt
+clawsino.egg-info/entry_points.txt
+clawsino.egg-info/requires.txt
+clawsino.egg-info/top_level.txt
+lib/__init__.py
+lib/client.py
+lib/fairness.py
+lib/wallet.py
+scripts/__init__.py
+scripts/clawsino.py
