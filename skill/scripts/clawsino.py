@@ -263,12 +263,30 @@ def cmd_balance():
         print("❌ No wallet configured. Set CLAWSINO_PRIVATE_KEY.")
         sys.exit(1)
     try:
-        rpc_url = os.environ.get("CLAWSINO_RPC_URL")
-        bal = wallet.get_usdc_balance(addr, rpc_url=rpc_url)
+        rpc_url = wallet.get_rpc_url()
+        usdc_addr = None
+        # Try to get USDC address from server (for local/onchain mode)
+        try:
+            import requests as _req
+            resp = _req.get(f"{wallet.get_server_url()}/health", timeout=5)
+            if resp.status_code == 200:
+                # Probe a game endpoint to get contract info from 402
+                probe = _req.post(f"{wallet.get_server_url()}/api/coinflip",
+                    json={"choice": "heads", "bet": 0.01},
+                    headers={"Content-Type": "application/json"}, timeout=5)
+                if probe.status_code == 402:
+                    body = probe.json()
+                    reqs = body.get("paymentRequirements", [])
+                    if reqs:
+                        extra = reqs[0].get("extra", {})
+                        usdc_addr = extra.get("usdcAddress")
+        except Exception:
+            pass
+        if rpc_url == "https://mainnet.base.org":
+            rpc_url = None
+        bal = wallet.get_usdc_balance(addr, rpc_url=rpc_url, usdc_address=usdc_addr)
         print(f"💰 Wallet: {addr}")
         print(f"   USDC Balance: ${bal:.4f}")
-        if rpc_url:
-            print(f"   RPC: {rpc_url}")
     except Exception as e:
         print(f"❌ Error checking balance: {e}")
         sys.exit(1)
